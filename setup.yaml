@@ -1,0 +1,7 @@
+name: MTG-OBS
+version: 0.2.1
+author: "eth4ck1e"
+email: mitchtrafford@gmail.com
+description: "Display Magic: The Gathering cards in OBS using a browser source.  This project is completely rewritten from scratch but was inspired by the original project magicOBS by mathiaspilch and d3kker. (Windows Only for now)"
+license: MIT
+entry_point: main.py
