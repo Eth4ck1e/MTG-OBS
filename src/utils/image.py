@@ -43,48 +43,70 @@ def create_clear_png():
     print("File created successfully.")
 
 
+def download_scryfall_images(cards):
+    """Download images for a list of cards in bulk from Scryfall."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    base_url = "https://api.scryfall.com/cards/collection"
+    headers = {"Content-Type": "application/json"}
+    identifiers = [
+        {"set": card["set_code"], "collector_number": card["collector_number"]}
+        for card in cards
+    ]
+    all_image_paths = []
+
+    logging.debug(f"Starting download for {len(identifiers)} cards")
+    for i in range(0, len(identifiers), 75):
+        batch = identifiers[i:i + 75]
+        batch_cards = cards[i:i + 75]
+        payload = {"identifiers": batch}
+        batch_paths = []
+        try:
+            response = requests.post(base_url, json=payload, headers=headers)
+            response.raise_for_status()
+            card_data = response.json()["data"]
+            for card, orig_card in zip(card_data, batch_cards):
+                safe_name = f"{card['name'].replace(' ', '_').replace('/', '_')}_{card['set']}_{card['collector_number']}.png"
+                file_path = os.path.join(CACHE_DIR, safe_name)
+                image_paths = []
+
+                if "card_faces" in card and card["layout"] in ["modal_dfc", "transform"]:
+                    for face in card["card_faces"]:
+                        face_name = face["name"].replace(" ", "_").replace("/", "_")
+                        face_file = f"{face_name}_{card['set']}_{card['collector_number']}.png"
+                        face_path = os.path.join(CACHE_DIR, face_file)
+                        if not os.path.isfile(face_path):
+                            image_url = face["image_uris"]["png"] if not orig_card["is_foil"] else face.get(
+                                "image_uris", {}).get("png")
+                            with requests.get(image_url) as img_response:
+                                img_response.raise_for_status()
+                                with open(face_path, "wb") as f:
+                                    f.write(img_response.content)
+                        image_paths.append(face_path)
+                else:
+                    if not os.path.isfile(file_path):
+                        image_url = card["image_uris"]["png"] if not orig_card["is_foil"] else card.get("image_uris",
+                                                                                                        {}).get("png")
+                        with requests.get(image_url) as img_response:
+                            img_response.raise_for_status()
+                            with open(file_path, "wb") as f:
+                                f.write(img_response.content)
+                    image_paths.append(file_path)
+
+                batch_paths.extend(image_paths)
+                logging.debug(f"Downloaded images for {card['name']} ({card['set']} #{card['collector_number']})")
+            all_image_paths.extend(batch_paths)
+            time.sleep(0.1)  # Respect rate limit
+        except Exception as e:
+            logging.error(f"Failed to fetch Scryfall batch: {str(e)}")
+            for card in batch_cards:
+                if not any(basic in card["card_name"] for basic in ["Island", "Mountain", "Swamp", "Forest", "Plains"]):
+                    logging.warning(
+                        f"Failed to download {card['card_name']} ({card['set_code']} #{card['collector_number']})")
+    logging.debug(f"Completed download: {len(all_image_paths)} paths")
+    return all_image_paths
+
+
 def download_scryfall_image(card_name, set_code, collector_number, is_foil=False, cache_dir=CACHE_DIR):
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_name = f"{card_name.replace(' ', '_').replace('/', '_')}_{set_code}_{collector_number}.png"
-    file_path = os.path.join(cache_dir, safe_name)
-
-    if os.path.isfile(file_path):
-        return [file_path]
-
-    url = f"https://api.scryfall.com/cards/{set_code}/{collector_number}"
-    try:
-        response = requests.get(url)
-        time.sleep(0.1)  # Rate limit
-        if response.status_code != 200:
-            logging.error(
-                f"Scryfall query failed for {card_name} ({set_code} #{collector_number}): HTTP {response.status_code}")
-            return []
-
-        card_data = response.json()
-        if "Land" in card_data.get("type_line", "") and "Basic" in card_data.get("type_line", ""):
-            return []  # Skip basic lands
-
-        image_paths = []
-        if "card_faces" in card_data and card_data["layout"] in ["modal_dfc", "transform"]:
-            for face in card_data["card_faces"]:
-                face_name = face["name"].replace(" ", "_").replace("/", "_")
-                face_file = f"{face_name}_{set_code}_{collector_number}.png"
-                face_path = os.path.join(cache_dir, face_file)
-                if not os.path.isfile(face_path):
-                    image_url = face["image_uris"]["png"] if not is_foil else face.get("image_uris", {}).get("png")
-                    image_response = requests.get(image_url)
-                    with open(face_path, "wb") as f:
-                        f.write(image_response.content)
-                image_paths.append(face_path)
-        else:
-            if not os.path.isfile(file_path):
-                image_url = card_data["image_uris"]["png"] if not is_foil else card_data.get("image_uris", {}).get(
-                    "png")
-                image_response = requests.get(image_url)
-                with open(file_path, "wb") as f:
-                    f.write(image_response.content)
-            image_paths.append(file_path)
-        return image_paths
-    except Exception as e:
-        logging.error(f"Error downloading {card_name} ({set_code} #{collector_number}): {str(e)}")
-        return []
+    """Legacy single-card fetch (kept for compatibility)."""
+    return download_scryfall_images(
+        [{"card_name": card_name, "set_code": set_code, "collector_number": collector_number, "is_foil": is_foil}])

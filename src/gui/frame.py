@@ -2,14 +2,17 @@
 import os
 import json
 import tkinter as tk
-from tkinter import messagebox, ttk
-from src.utils.image import CustomImage, download_scryfall_image
+from tkinter import messagebox, ttk, filedialog
+from src.utils.image import CustomImage, download_scryfall_images
 from src.utils.paths import get_relative_path
 from src.utils.favorites import save_favorite, load_favorites
 from src.utils.deck_parser import DeckParser
 from src.output.html import write_html
 from src.config.settings import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, CACHE_DIR, DECKS_DIR
 import logging
+import shutil
+import threading
+
 
 class BaseCardFrame(tk.Frame):
     """Base class for card frames with shared functionality."""
@@ -64,25 +67,24 @@ class BaseCardFrame(tk.Frame):
             print("No search field in this frame")
             return
         if self.filter_timer:
-            self.after_cancel(self.filter_timer)  # Cancel previous scheduled filter
-        self.filter_timer = self.after(300, self._do_filter)  # Wait 300ms before filtering
+            self.after_cancel(self.filter_timer)
+        self.filter_timer = self.after(300, self._do_filter)
 
     def _do_filter(self):
         """Perform the actual filtering after debounce delay."""
         search_text = self.search_field.get().lower()
         print(f"Filtering with text: {search_text}")
-        # First, hide all cards
         for label, _ in self.list_of_buttons:
             label.pack_forget()
-        # Then, show only matching cards
         visible_count = 0
         for label, name_label in self.list_of_buttons:
             card_name = name_label["text"].lower()
-            if not search_text or search_text in card_name:  # Show all if empty, filter if text present
+            if not search_text or search_text in card_name:
                 label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
                 visible_count += 1
         self.image_frame.update_idletasks()
         logging.debug(f"Filtered cards, visible: {visible_count}")
+
 
 class Frame(BaseCardFrame):
     def __init__(self, parent, browser, favorites_frame, window, button_width=THUMBNAIL_WIDTH,
@@ -103,6 +105,10 @@ class Frame(BaseCardFrame):
         self.frame_buttons.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         reload_button = tk.Button(self.frame_buttons, text="Reload", command=self.reload_images, width=10)
         reload_button.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
+        clear_button = tk.Button(self.frame_buttons, text="Clear All", command=self.clear_all, width=10)
+        clear_button.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
+        add_deck_button = tk.Button(self.frame_buttons, text="Add Deck", command=self.add_deck, width=10)
+        add_deck_button.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
         search_label = tk.Label(self.frame_buttons, text="Search:")
         search_label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
         self.search_field.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
@@ -117,18 +123,101 @@ class Frame(BaseCardFrame):
         self.favorites_frame.add_card(card)
         save_favorite(card.name)
 
+    def clear_all(self):
+        """Clear all deck files, cached images, and reset the app."""
+        if not messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all decks and images?"):
+            return
+        try:
+            for file in os.listdir(DECKS_DIR):
+                if file.endswith('.txt'):
+                    os.remove(os.path.join(DECKS_DIR, file))
+                    logging.debug(f"Deleted deck file: {file}")
+            if os.path.exists(CACHE_DIR):
+                shutil.rmtree(CACHE_DIR)
+                logging.debug("Cleared cache directory")
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            self.images = []
+            self.list_of_buttons = []
+            self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
+            self.favorites_frame.load_favorites()
+            self.update_idletasks()
+            messagebox.showinfo("Cleared", "All decks and images have been cleared.")
+        except Exception as e:
+            logging.error(f"Failed to clear all: {str(e)}")
+            messagebox.showerror("Error", f"Failed to clear: {str(e)}")
+
+    def add_deck(self):
+        """Open file browser to add a deck file and reload."""
+        file_path = filedialog.askopenfilename(
+            title="Select Deck File",
+            filetypes=(("Text files", "*.txt"), ("All files", "*.*"))
+        )
+        if not file_path:
+            return
+        try:
+            dest_path = os.path.join(DECKS_DIR, os.path.basename(file_path))
+            if os.path.exists(dest_path):
+                raise FileExistsError(f"File {os.path.basename(file_path)} already exists in decks directory")
+            shutil.copy(file_path, dest_path)
+            logging.info(f"Added deck file: {dest_path}")
+            self.reload_images()
+        except Exception as e:
+            logging.error(f"Failed to add deck: {str(e)}")
+            messagebox.showerror("Error", f"Failed to add deck: {str(e)}")
+
+    def _download_images_thread(self, cards_to_fetch):
+        """Download images in a separate thread."""
+        download_scryfall_images(cards_to_fetch)
+
+    def _update_progress(self, progress_bar, expected_files):
+        """Poll the cache directory for file count and update progress."""
+        current_files = len([f for f in os.listdir(CACHE_DIR) if f.endswith('.png')])
+        logging.debug(f"Progress: {current_files}/{expected_files} files downloaded")
+        progress_bar["value"] = current_files
+        self.update_idletasks()
+
+        if current_files < expected_files or not self.download_thread.is_alive():
+            self.after(100, self._update_progress, progress_bar, expected_files)
+        else:
+            self._finalize_load(progress_bar)
+
+    def _finalize_load(self, progress_bar):
+        """Complete the loading process after downloads."""
+        progress_bar.destroy()
+        downloaded_files = [f for f in os.listdir(CACHE_DIR) if f.endswith('.png')]
+        logging.debug(f"Finalizing load with {len(downloaded_files)} downloaded files")
+        for filename in downloaded_files:
+            image_path = os.path.join(CACHE_DIR, filename)
+            image = CustomImage(CACHE_DIR, filename)
+            image.load_thumbnail(self.button_width, self.button_height)
+            self.images.append(image)
+            self.cached_files.append(filename)
+        if not self.images:
+            logging.warning("No images loaded despite files in cache")
+            messagebox.showinfo("No Images", "No valid cards found in deck files")
+        else:
+            self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
+            with open(os.path.join(CACHE_DIR, "deck_cache.json"), "w") as f:
+                json.dump({"mtime": self.deck_mtime, "files": self.cached_files}, f)
+            if self.failures:
+                messagebox.showwarning("Load Complete",
+                                       f"Loaded {len(self.images)} cards.\nFailed: {', '.join(self.failures[:10])}{'...' if len(self.failures) > 10 else ''}")
+            else:
+                messagebox.showinfo("Load Complete", f"Loaded {len(self.images)} cards successfully.")
+
     def load_all_decks(self):
         self.images = []
         self.failures = []
         os.makedirs(DECKS_DIR, exist_ok=True)
         os.makedirs(CACHE_DIR, exist_ok=True)
+        self.deck_parser.refresh_deck_files()
         deck_files = self.deck_parser.deck_files
         if not deck_files:
             messagebox.showinfo("No Decks", "Place deck files in the 'decks' directory.")
             return
 
         cache_file = os.path.join(CACHE_DIR, "deck_cache.json")
-        deck_mtime = max(os.path.getmtime(os.path.join(DECKS_DIR, f)) for f in deck_files)
+        self.deck_mtime = max(os.path.getmtime(os.path.join(DECKS_DIR, f)) for f in deck_files) if deck_files else 0
 
         progress_bar = ttk.Progressbar(orient=tk.HORIZONTAL, length=200, mode='determinate')
         progress_bar.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
@@ -136,7 +225,7 @@ class Frame(BaseCardFrame):
         if os.path.exists(cache_file):
             with open(cache_file, "r") as f:
                 cache_data = json.load(f)
-            if cache_data.get("mtime", 0) >= deck_mtime:
+            if cache_data.get("mtime", 0) >= self.deck_mtime:
                 cached_files = cache_data["files"]
                 progress_bar["maximum"] = len(cached_files)
                 for i, filename in enumerate(cached_files):
@@ -157,11 +246,8 @@ class Frame(BaseCardFrame):
                     messagebox.showinfo("Cache Empty", "Cache found but no images loaded. Reparsing decks.")
 
         unique_cards = set()
-        cached_files = []
-        total_lines = sum(len(open(os.path.join(DECKS_DIR, f), "r").readlines()) for f in deck_files)
-        progress_bar["maximum"] = total_lines
-        line_count = 0
-
+        self.cached_files = []
+        cards_to_fetch = []
         for deck_file, line in self.deck_parser.get_deck_lines():
             match = self.deck_parser.pattern.match(line)
             if match:
@@ -170,35 +256,30 @@ class Frame(BaseCardFrame):
                 card_id = f"{card_name}_{set_code}_{collector_number}"
                 if card_id not in unique_cards:
                     unique_cards.add(card_id)
-                    image_paths = download_scryfall_image(card_name, set_code, collector_number, is_foil)
-                    if not image_paths and not any(
-                            basic in card_name for basic in ["Island", "Mountain", "Swamp", "Forest", "Plains"]):
-                        self.failures.append(f"{card_name} ({set_code} #{collector_number})")
-                    for image_path in image_paths:
-                        if image_path:
-                            image = CustomImage(CACHE_DIR, os.path.basename(image_path))
-                            image.load_thumbnail(self.button_width, self.button_height)
-                            self.images.append(image)
-                            cached_files.append(os.path.basename(image_path))
+                    cards_to_fetch.append({
+                        "card_name": card_name,
+                        "set_code": set_code,
+                        "collector_number": collector_number,
+                        "is_foil": is_foil
+                    })
             else:
                 logging.warning(f"Failed to parse line in {deck_file}: {line}")
                 self.failures.append(f"Unparsed: {line}")
-            line_count += 1
-            progress_bar["value"] = line_count
-            self.update_idletasks()
 
-        progress_bar.destroy()
-        if not self.images:
+        expected_files = len(cards_to_fetch)
+        if expected_files == 0:
+            progress_bar.destroy()
             messagebox.showinfo("No Images", "No valid cards found in deck files")
-        else:
-            self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
-            with open(cache_file, "w") as f:
-                json.dump({"mtime": deck_mtime, "files": cached_files}, f)
-            if self.failures:
-                messagebox.showwarning("Load Complete",
-                                       f"Loaded {len(self.images)} cards.\nFailed: {', '.join(self.failures[:10])}{'...' if len(self.failures) > 10 else ''}")
-            else:
-                messagebox.showinfo("Load Complete", f"Loaded {len(self.images)} cards successfully.")
+            return
+
+        progress_bar["maximum"] = expected_files
+        progress_bar["value"] = 0
+        self.update_idletasks()
+
+        # Download in a separate thread
+        self.download_thread = threading.Thread(target=self._download_images_thread, args=(cards_to_fetch,))
+        self.download_thread.start()
+        self.after(100, self._update_progress, progress_bar, expected_files)
 
     def reload_images(self):
         self.load_all_decks()
@@ -209,6 +290,7 @@ class Frame(BaseCardFrame):
         card_name = " ".join(parts[0].split("_"))
         set_code = parts[1]
         self.window.show_scryfall_search(card_name, set_code, index)
+
 
 class FavoritesFrame(BaseCardFrame):
     def __init__(self, parent, browser, button_width=THUMBNAIL_WIDTH, button_height=THUMBNAIL_HEIGHT, padding=10):

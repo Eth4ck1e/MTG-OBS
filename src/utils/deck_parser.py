@@ -6,14 +6,22 @@ import logging
 
 class DeckParser:
     def __init__(self):
-        self.deck_files = [f for f in os.listdir(DECKS_DIR) if f.endswith('.txt') and f != 'favorites.txt']
         self.pattern = re.compile(r"(\d+)x (.+?) \((.+?)\) ([0-9A-Za-z-]+)(?: \*[FE]\*)? \[(.*?)(?:\{.*?\})?(?:,.*)?\]")
+        self.refresh_deck_files()
+
+    def refresh_deck_files(self):
+        """Refresh the list of deck files from DECKS_DIR."""
+        self.deck_files = [
+            f for f in os.listdir(DECKS_DIR)
+            if os.path.isfile(os.path.join(DECKS_DIR, f)) and f.endswith(".txt") and f != "favorites.txt"
+        ]
+        logging.debug(f"Refreshed deck files: {self.deck_files}")
 
     def get_deck_lines(self):
         """Return all lines from deck files with file info."""
         deck_lines = []
         for deck_file in self.deck_files:
-            with open(os.path.join(DECKS_DIR, deck_file), "r") as f:
+            with open(os.path.join(DECKS_DIR, deck_file), "r", encoding="utf-8") as f:
                 lines = f.readlines()
             for line in lines:
                 deck_lines.append((deck_file, line.strip()))
@@ -33,7 +41,6 @@ class DeckParser:
                     if (card_name == old_card_name and
                         set_code == old_set_code and
                         collector_number == old_collector_number):
-                        # Preserve foil marker and extra tags
                         foil_marker = " *F*" if "*F*" in line else " *E*" if "*E*" in line else ""
                         tags = line[line.find('['):].strip()
                         new_line = f"{quantity}x {card_name} ({new_set_code}) {new_collector_number}{foil_marker} {tags}\n"
