@@ -21,15 +21,8 @@ class BaseCardFrame(tk.Frame):
         self.button_height = button_height
         self.padding = padding
         self.images = []
-        self.list_of_buttons = []
-
-    def calculate_grid_size(self):
-        total_width = self.winfo_width() - self.padding
-        cols = max(1, int(total_width / (self.button_width + self.padding)))
-        rows = max(1, int(len(self.images) / cols))
-        if len(self.images) % cols != 0:
-            rows += 1
-        return rows, cols
+        self.list_of_buttons = []  # Stores (label, name_label) tuples
+        self.filter_timer = None  # For debouncing
 
     def create_grid_of_buttons(self, target_frame=None, show_fav_button=False):
         """Create grid of card buttons in the specified frame (defaults to self)."""
@@ -37,34 +30,28 @@ class BaseCardFrame(tk.Frame):
         for widget in frame.winfo_children():
             widget.destroy()
         self.list_of_buttons = []
-        index = 0
-        rows, cols = self.calculate_grid_size()
-        for row in range(rows):
-            for col in range(cols):
-                if index >= len(self.images):
-                    break
-                filename = self.images[index].name
-                label = tk.Label(frame, image=self.images[index].thumbnail,
-                                 width=self.button_width, height=self.button_height)
-                display_name = " ".join(filename.replace("_", " ").split(" ")[0:-2])
-                label_name = tk.Label(label, text=display_name, fg="white", font=("Helvetica", 10), bg="#333333")
-                label_name.place(relx=0.5, rely=0.5, anchor="center")
-                if show_fav_button and hasattr(self, 'add_to_favorites'):
-                    fav_button = tk.Button(label, text="Fav", command=lambda x=index: self.add_to_favorites(x), width=3)
-                    fav_button.place(relx=0.5, rely=0.0, anchor='n')
-                slot1_button = tk.Button(label, text="SLOT 1",
-                                         command=lambda x=index: self.set_slot(0, self.images[x].name))
-                slot1_button.place(relx=0.0, rely=1.0, anchor='sw')
-                slot2_button = tk.Button(label, text="SLOT 2",
-                                         command=lambda x=index: self.set_slot(1, self.images[x].name))
-                slot2_button.place(relx=1.0, rely=1.0, anchor='se')
-                # Right-click menu
-                menu = tk.Menu(label, tearoff=0)
-                menu.add_command(label="Replace Card", command=lambda i=index: self.replace_card(i))
-                label.bind("<Button-3>", lambda e, m=menu: m.tk_popup(e.x_root, e.y_root))
-                self.list_of_buttons.append(label)
-                label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
-                index += 1
+        for index, image in enumerate(self.images):
+            filename = image.name
+            label = tk.Label(frame, image=image.thumbnail,
+                             width=self.button_width, height=self.button_height)
+            display_name = " ".join(filename.replace("_", " ").split(" ")[0:-2])
+            label_name = tk.Label(label, text=display_name, fg="white", font=("Helvetica", 10), bg="#333333")
+            label_name.place(relx=0.5, rely=0.5, anchor="center")
+            if show_fav_button and hasattr(self, 'add_to_favorites'):
+                fav_button = tk.Button(label, text="Fav", command=lambda x=index: self.add_to_favorites(x), width=3)
+                fav_button.place(relx=0.5, rely=0.0, anchor='n')
+            slot1_button = tk.Button(label, text="SLOT 1",
+                                     command=lambda x=index: self.set_slot(0, self.images[x].name))
+            slot1_button.place(relx=0.0, rely=1.0, anchor='sw')
+            slot2_button = tk.Button(label, text="SLOT 2",
+                                     command=lambda x=index: self.set_slot(1, self.images[x].name))
+            slot2_button.place(relx=1.0, rely=1.0, anchor='se')
+            menu = tk.Menu(label, tearoff=0)
+            menu.add_command(label="Replace Card", command=lambda i=index: self.replace_card(i))
+            label.bind("<Button-3>", lambda e, m=menu: m.tk_popup(e.x_root, e.y_root))
+            self.list_of_buttons.append((label, label_name))
+            label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
+        logging.debug(f"Created {len(self.list_of_buttons)} buttons")
 
     def set_slot(self, slot, filename):
         path = get_relative_path(CACHE_DIR, filename)
@@ -72,21 +59,30 @@ class BaseCardFrame(tk.Frame):
         write_html(self.browser)
 
     def filter_cards(self, event=None):
-        """Filter displayed cards based on search text."""
+        """Schedule filtering with a debounce delay."""
         if not hasattr(self, 'search_field'):
             print("No search field in this frame")
             return
+        if self.filter_timer:
+            self.after_cancel(self.filter_timer)  # Cancel previous scheduled filter
+        self.filter_timer = self.after(300, self._do_filter)  # Wait 300ms before filtering
+
+    def _do_filter(self):
+        """Perform the actual filtering after debounce delay."""
         search_text = self.search_field.get().lower()
         print(f"Filtering with text: {search_text}")
-        for button in self.list_of_buttons:
-            label = button.winfo_children()[0]
-            card_name = label["text"].lower()
-            if search_text in card_name:
-                button.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
-            else:
-                button.pack_forget()
+        # First, hide all cards
+        for label, _ in self.list_of_buttons:
+            label.pack_forget()
+        # Then, show only matching cards
+        visible_count = 0
+        for label, name_label in self.list_of_buttons:
+            card_name = name_label["text"].lower()
+            if not search_text or search_text in card_name:  # Show all if empty, filter if text present
+                label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
+                visible_count += 1
         self.image_frame.update_idletasks()
-
+        logging.debug(f"Filtered cards, visible: {visible_count}")
 
 class Frame(BaseCardFrame):
     def __init__(self, parent, browser, favorites_frame, window, button_width=THUMBNAIL_WIDTH,
@@ -114,7 +110,7 @@ class Frame(BaseCardFrame):
         print("Search field packed")
         self.image_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         print("Image frame packed")
-        self.update()  # Ensure frame is visible before loading
+        self.update()
 
     def add_to_favorites(self, index):
         card = self.images[index]
@@ -150,7 +146,7 @@ class Frame(BaseCardFrame):
                         image.load_thumbnail(self.button_width, self.button_height)
                         self.images.append(image)
                     progress_bar["value"] = i + 1
-                    self.update_idletasks()  # Update UI incrementally
+                    self.update_idletasks()
                 if self.images:
                     progress_bar.destroy()
                     self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
@@ -189,7 +185,7 @@ class Frame(BaseCardFrame):
                 self.failures.append(f"Unparsed: {line}")
             line_count += 1
             progress_bar["value"] = line_count
-            self.update_idletasks()  # Update UI incrementally
+            self.update_idletasks()
 
         progress_bar.destroy()
         if not self.images:
@@ -213,7 +209,6 @@ class Frame(BaseCardFrame):
         card_name = " ".join(parts[0].split("_"))
         set_code = parts[1]
         self.window.show_scryfall_search(card_name, set_code, index)
-
 
 class FavoritesFrame(BaseCardFrame):
     def __init__(self, parent, browser, button_width=THUMBNAIL_WIDTH, button_height=THUMBNAIL_HEIGHT, padding=10):

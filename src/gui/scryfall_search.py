@@ -6,6 +6,7 @@ import os
 from PIL import Image, ImageTk
 import io
 import time
+import json
 from src.utils.image import CustomImage
 from src.config.settings import CACHE_DIR, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT
 import logging
@@ -168,6 +169,7 @@ class ScryfallSearchFrame(tk.Frame):
     def replace_card(self, image_url, filename, index, old_set_code, old_collector_number, new_set_code,
                      new_collector_number):
         try:
+            # Download new image
             response = requests.get(image_url)
             response.raise_for_status()
             image_path = os.path.join(CACHE_DIR, filename)
@@ -178,12 +180,55 @@ class ScryfallSearchFrame(tk.Frame):
             self.frame.images[index] = new_image
             self.frame.create_grid_of_buttons(target_frame=self.frame.image_frame, show_fav_button=True)
 
+            # Update deck list
             success = self.frame.deck_parser.update_card(
                 self.card_name, old_set_code, old_collector_number,
                 new_set_code, new_collector_number
             )
-            if success:
-                messagebox.showinfo("Success", f"Replaced card with {filename} and updated deck list.")
+
+            # Cache handling: Remove old image if unused and update deck_cache.json
+            old_filename = f"{self.card_name.replace(' ', '_')}_{old_set_code}_{old_collector_number}.png"
+            old_image_path = os.path.join(CACHE_DIR, old_filename)
+            cache_file = os.path.join(CACHE_DIR, "deck_cache.json")
+            cache_updated = False
+
+            if os.path.exists(old_image_path):
+                is_used = False
+                for _, line in self.frame.deck_parser.get_deck_lines():
+                    if old_filename.replace(".png", "") in line:
+                        is_used = True
+                        break
+                if not is_used:
+                    try:
+                        os.remove(old_image_path)
+                        logging.debug(f"Removed unused image from cache: {old_filename}")
+                    except OSError as e:
+                        logging.warning(f"Failed to remove unused image {old_filename}: {str(e)}")
+
+            # Update deck_cache.json
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, "r") as f:
+                        cache_data = json.load(f)
+                    cached_files = cache_data.get("files", [])
+                    if old_filename in cached_files:
+                        cached_files.remove(old_filename)
+                        logging.debug(f"Removed {old_filename} from deck_cache.json")
+                    if filename not in cached_files:
+                        cached_files.append(filename)
+                        logging.debug(f"Added {filename} to deck_cache.json")
+                    cache_data["files"] = cached_files
+                    with open(cache_file, "w") as f:
+                        json.dump(cache_data, f)
+                    cache_updated = True
+                except (json.JSONDecodeError, OSError) as e:
+                    logging.warning(f"Failed to update deck_cache.json: {str(e)}")
+
+            if success and cache_updated:
+                messagebox.showinfo("Success", f"Replaced card with {filename}, updated deck list, and cleaned cache.")
+            elif success:
+                messagebox.showinfo("Success",
+                                    f"Replaced card with {filename} and updated deck list (cache update failed).")
             else:
                 logging.error(
                     f"Failed to update deck list: {self.card_name} ({old_set_code} #{old_collector_number}) to ({new_set_code} #{new_collector_number})")
