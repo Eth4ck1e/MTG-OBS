@@ -3,12 +3,11 @@ import os
 import json
 import tkinter as tk
 from tkinter import ttk, filedialog
-from src.utils.image import CustomImage, download_scryfall_images
+from src.utils.image import CustomImage, download_scryfall_images, create_clear_png  # Add create_clear_png
 from src.utils.paths import get_relative_path
 from src.utils.favorites import save_favorite, load_favorites
 from src.utils.deck_parser import DeckParser
-from src.output.html import write_html
-from src.config.settings import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, CACHE_DIR, DECKS_DIR
+from src.config.settings import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, CACHE_DIR, DECKS_DIR  # Remove OUTPUT_DIR
 import logging
 import shutil
 import threading
@@ -58,8 +57,27 @@ class BaseCardFrame(tk.Frame):
 
     def set_slot(self, slot, filename):
         path = get_relative_path(CACHE_DIR, filename)
-        self.browser.set_slot(slot, path)
-        write_html(self.browser)
+        from PIL import Image  # Already at top
+        try:
+            with Image.open(path) as img:
+                width, height = img.size
+                logging.debug(f"Setting slot {slot} to {path} (size: {width}x{height}px)")
+        except Exception as e:
+            logging.warning(f"Could not check image size for {path}: {str(e)}")
+
+        clear_url = create_clear_png()  # Get base64 clear.png
+        if slot == 0:  # Slot 1: Push current slot 1 to slot 2
+            current_slot1 = self.browser.get_slot(0)
+            if current_slot1 and current_slot1 != clear_url:  # Compare to base64 string
+                logging.debug(f"Pushing slot 1 ({current_slot1}) to slot 2")
+                self.browser.set_slot(1, current_slot1)
+            self.browser.set_slot(0, path)
+        elif slot == 1:  # Slot 2: Replace directly
+            self.browser.set_slot(1, path)
+        else:
+            logging.warning(f"Invalid slot index: {slot}")
+            return
+        # No write_html—Flask updates live
 
     def filter_cards(self, event=None):
         """Schedule filtering with a debounce delay."""

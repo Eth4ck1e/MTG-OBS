@@ -4,8 +4,10 @@ import requests
 import time
 import logging
 from datetime import datetime
-from src.config.settings import RESOURCE_DIR, CACHE_DIR, CLEAR_IMAGE_SIZE, LOGS_DIR
+from src.config.settings import CACHE_DIR, CLEAR_IMAGE_SIZE, LOGS_DIR
 from PIL import Image, ImageTk
+import io
+import base64
 
 # Configure logging with cleanup
 os.makedirs(LOGS_DIR, exist_ok=True)
@@ -15,7 +17,6 @@ if os.path.exists(log_file):
     os.rename(log_file, os.path.join(LOGS_DIR, f"{timestamp}.log"))
 logging.basicConfig(filename=log_file, level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
-
 
 class CustomImage:
     def __init__(self, directory, name):
@@ -29,19 +30,17 @@ class CustomImage:
         image = image.resize((button_width, button_height), resample=Image.LANCZOS)
         self.thumbnail = ImageTk.PhotoImage(image)
 
-
 def create_clear_png():
+    """Create clear.png in memory as a base64 string."""
     width, height = CLEAR_IMAGE_SIZE
-    directory = os.path.join(RESOURCE_DIR, "images")
-    os.makedirs(directory, exist_ok=True)
-    file_path = os.path.join(directory, "clear.png")
-    if os.path.isfile(file_path):
-        print("File already exists, skipping creation.")
-        return
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    image.save(file_path, "PNG")
-    print("File created successfully.")
-
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    img_bytes = buffer.getvalue()
+    base64_str = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
+    logging.info("Clear.png created in memory as base64 string.")
+    buffer.close()
+    return base64_str
 
 def download_scryfall_images(cards):
     """Download images for a list of cards in bulk from Scryfall."""
@@ -75,8 +74,7 @@ def download_scryfall_images(cards):
                         face_file = f"{face_name}_{card['set']}_{card['collector_number']}.png"
                         face_path = os.path.join(CACHE_DIR, face_file)
                         if not os.path.isfile(face_path):
-                            image_url = face["image_uris"]["png"] if not orig_card["is_foil"] else face.get(
-                                "image_uris", {}).get("png")
+                            image_url = face["image_uris"]["png"] if not orig_card["is_foil"] else face.get("image_uris", {}).get("png")
                             with requests.get(image_url) as img_response:
                                 img_response.raise_for_status()
                                 with open(face_path, "wb") as f:
@@ -84,8 +82,7 @@ def download_scryfall_images(cards):
                         image_paths.append(face_path)
                 else:
                     if not os.path.isfile(file_path):
-                        image_url = card["image_uris"]["png"] if not orig_card["is_foil"] else card.get("image_uris",
-                                                                                                        {}).get("png")
+                        image_url = card["image_uris"]["png"] if not orig_card["is_foil"] else card.get("image_uris", {}).get("png")
                         with requests.get(image_url) as img_response:
                             img_response.raise_for_status()
                             with open(file_path, "wb") as f:
@@ -95,16 +92,14 @@ def download_scryfall_images(cards):
                 batch_paths.extend(image_paths)
                 logging.debug(f"Downloaded images for {card['name']} ({card['set']} #{card['collector_number']})")
             all_image_paths.extend(batch_paths)
-            time.sleep(0.1)  # Respect rate limit
+            time.sleep(0.1)
         except Exception as e:
-            logging.error(f"Failed to fetch Scryfall batch: {str(e)}")
+            logging.error(f"Failed to fetch Scryfall batch: {str(e)}", exc_info=True)
             for card in batch_cards:
                 if not any(basic in card["card_name"] for basic in ["Island", "Mountain", "Swamp", "Forest", "Plains"]):
-                    logging.warning(
-                        f"Failed to download {card['card_name']} ({card['set_code']} #{card['collector_number']})")
+                    logging.warning(f"Failed to download {card['card_name']} ({card['set_code']} #{card['collector_number']})")
     logging.debug(f"Completed download: {len(all_image_paths)} paths")
     return all_image_paths
-
 
 def download_scryfall_image(card_name, set_code, collector_number, is_foil=False, cache_dir=CACHE_DIR):
     """Legacy single-card fetch (kept for compatibility)."""
