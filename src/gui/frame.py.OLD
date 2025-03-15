@@ -2,12 +2,12 @@
 import os
 import json
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox  # Add messagebox for confirmation
-from src.utils.image import CustomImage, download_scryfall_images, create_clear_png
+from tkinter import ttk, filedialog
+from src.utils.image import CustomImage, download_scryfall_images, create_clear_png  # Add create_clear_png
 from src.utils.paths import get_relative_path
 from src.utils.favorites import save_favorite, load_favorites
 from src.utils.deck_parser import DeckParser
-from src.config.settings import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, CACHE_DIR, DECKS_DIR
+from src.config.settings import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, CACHE_DIR, DECKS_DIR  # Remove OUTPUT_DIR
 import logging
 import shutil
 import threading
@@ -65,10 +65,10 @@ class BaseCardFrame(tk.Frame):
         except Exception as e:
             logging.warning(f"Could not check image size for {path}: {str(e)}")
 
-        clear_url = create_clear_png()
+        clear_url = create_clear_png()  # Get base64 clear.png
         if slot == 0:  # Slot 1: Push current slot 1 to slot 2
             current_slot1 = self.browser.get_slot(0)
-            if current_slot1 and current_slot1 != clear_url:
+            if current_slot1 and current_slot1 != clear_url:  # Compare to base64 string
                 logging.debug(f"Pushing slot 1 ({current_slot1}) to slot 2")
                 self.browser.set_slot(1, current_slot1)
             self.browser.set_slot(0, path)
@@ -77,6 +77,7 @@ class BaseCardFrame(tk.Frame):
         else:
             logging.warning(f"Invalid slot index: {slot}")
             return
+        # No write_html—Flask updates live
 
     def filter_cards(self, event=None):
         """Schedule filtering with a debounce delay."""
@@ -142,7 +143,7 @@ class Frame(BaseCardFrame):
 
     def clear_all(self):
         """Clear all deck files, cached images, and reset the app."""
-        if not messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all decks and images?"):
+        if not tk.messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all decks and images?"):
             logging.info("Clear all operation canceled by user")
             return
         try:
@@ -312,16 +313,7 @@ class FavoritesFrame(BaseCardFrame):
     def __init__(self, parent, browser, button_width=THUMBNAIL_WIDTH, button_height=THUMBNAIL_HEIGHT, padding=10):
         super().__init__(parent, browser, button_width, button_height, padding)
         self.config(borderwidth=2, relief="groove")
-        self.create_widgets()  # Add widgets on init
         self.load_favorites()
-
-    def create_widgets(self):
-        """Create widgets for the Favorites frame."""
-        self.label = tk.Label(self, text="Favorites", font=("Helvetica", 12, "bold"))
-        self.label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
-
-        self.clear_button = tk.Button(self, text="Clear Favorites", command=self.clear_favorites, width=10)
-        self.clear_button.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
 
     def load_favorites(self):
         """Load favorites from file on startup."""
@@ -333,21 +325,3 @@ class FavoritesFrame(BaseCardFrame):
         if card.name not in [img.name for img in self.images]:
             self.images.append(card)
             self.create_grid_of_buttons(show_fav_button=False)
-
-    def clear_favorites(self):
-        """Clear all favorites from memory and file."""
-        if not messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all favorites?"):
-            logging.info("Clear favorites operation canceled by user")
-            return
-        try:
-            self.images = []
-            self.list_of_buttons = []
-            self.create_grid_of_buttons()  # Refresh UI
-            fav_file = os.path.join(DECKS_DIR, "favorites.txt")
-            if os.path.exists(fav_file):
-                with open(fav_file, "w") as f:
-                    f.write("")  # Truncate file
-                logging.debug("Cleared favorites.txt")
-            logging.info("Favorites cleared successfully")
-        except Exception as e:
-            logging.error(f"Failed to clear favorites: {str(e)}", exc_info=True)
