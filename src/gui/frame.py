@@ -2,7 +2,7 @@
 import os
 import json
 import tkinter as tk
-from tkinter import messagebox, ttk, filedialog
+from tkinter import ttk, filedialog
 from src.utils.image import CustomImage, download_scryfall_images
 from src.utils.paths import get_relative_path
 from src.utils.favorites import save_favorite, load_favorites
@@ -125,7 +125,8 @@ class Frame(BaseCardFrame):
 
     def clear_all(self):
         """Clear all deck files, cached images, and reset the app."""
-        if not messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all decks and images?"):
+        if not tk.messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all decks and images?"):
+            logging.info("Clear all operation canceled by user")
             return
         try:
             for file in os.listdir(DECKS_DIR):
@@ -141,10 +142,9 @@ class Frame(BaseCardFrame):
             self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
             self.favorites_frame.load_favorites()
             self.update_idletasks()
-            messagebox.showinfo("Cleared", "All decks and images have been cleared.")
+            logging.info("All decks and images cleared successfully")
         except Exception as e:
-            logging.error(f"Failed to clear all: {str(e)}")
-            messagebox.showerror("Error", f"Failed to clear: {str(e)}")
+            logging.error(f"Failed to clear all: {str(e)}", exc_info=True)
 
     def add_deck(self):
         """Open file browser to add a deck file and reload."""
@@ -153,6 +153,7 @@ class Frame(BaseCardFrame):
             filetypes=(("Text files", "*.txt"), ("All files", "*.*"))
         )
         if not file_path:
+            logging.info("Deck addition canceled by user")
             return
         try:
             dest_path = os.path.join(DECKS_DIR, os.path.basename(file_path))
@@ -162,8 +163,7 @@ class Frame(BaseCardFrame):
             logging.info(f"Added deck file: {dest_path}")
             self.reload_images()
         except Exception as e:
-            logging.error(f"Failed to add deck: {str(e)}")
-            messagebox.showerror("Error", f"Failed to add deck: {str(e)}")
+            logging.error(f"Failed to add deck: {str(e)}", exc_info=True)
 
     def _download_images_thread(self, cards_to_fetch):
         """Download images in a separate thread."""
@@ -194,16 +194,16 @@ class Frame(BaseCardFrame):
             self.cached_files.append(filename)
         if not self.images:
             logging.warning("No images loaded despite files in cache")
-            messagebox.showinfo("No Images", "No valid cards found in deck files")
+            logging.info("No valid cards found in deck files")
         else:
             self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
             with open(os.path.join(CACHE_DIR, "deck_cache.json"), "w") as f:
                 json.dump({"mtime": self.deck_mtime, "files": self.cached_files}, f)
             if self.failures:
-                messagebox.showwarning("Load Complete",
-                                       f"Loaded {len(self.images)} cards.\nFailed: {', '.join(self.failures[:10])}{'...' if len(self.failures) > 10 else ''}")
+                logging.warning(
+                    f"Loaded {len(self.images)} cards with failures: {', '.join(self.failures[:10])}{'...' if len(self.failures) > 10 else ''}")
             else:
-                messagebox.showinfo("Load Complete", f"Loaded {len(self.images)} cards successfully.")
+                logging.info(f"Loaded {len(self.images)} cards successfully")
 
     def load_all_decks(self):
         self.images = []
@@ -213,7 +213,7 @@ class Frame(BaseCardFrame):
         self.deck_parser.refresh_deck_files()
         deck_files = self.deck_parser.deck_files
         if not deck_files:
-            messagebox.showinfo("No Decks", "Place deck files in the 'decks' directory.")
+            logging.info("No deck files found in the 'decks' directory")
             return
 
         cache_file = os.path.join(CACHE_DIR, "deck_cache.json")
@@ -239,11 +239,11 @@ class Frame(BaseCardFrame):
                 if self.images:
                     progress_bar.destroy()
                     self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
-                    messagebox.showinfo("Load Complete", f"Loaded {len(self.images)} cards from cache.")
+                    logging.info(f"Loaded {len(self.images)} cards from cache")
                     return
                 else:
                     progress_bar.destroy()
-                    messagebox.showinfo("Cache Empty", "Cache found but no images loaded. Reparsing decks.")
+                    logging.info("Cache found but no images loaded. Reparsing decks")
 
         unique_cards = set()
         self.cached_files = []
@@ -269,14 +269,13 @@ class Frame(BaseCardFrame):
         expected_files = len(cards_to_fetch)
         if expected_files == 0:
             progress_bar.destroy()
-            messagebox.showinfo("No Images", "No valid cards found in deck files")
+            logging.info("No valid cards found in deck files")
             return
 
         progress_bar["maximum"] = expected_files
         progress_bar["value"] = 0
         self.update_idletasks()
 
-        # Download in a separate thread
         self.download_thread = threading.Thread(target=self._download_images_thread, args=(cards_to_fetch,))
         self.download_thread.start()
         self.after(100, self._update_progress, progress_bar, expected_files)
