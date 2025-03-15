@@ -2,7 +2,9 @@
 import os
 import tkinter as tk
 from tkinter import filedialog, ttk
-from src.gui.frame import Frame, FavoritesFrame
+from src.gui.deck_frame import Frame
+from src.gui.favorites_frame import FavoritesFrame
+from src.gui.deck_controls_frame import DeckControlsFrame  # New import
 from src.gui.scryfall_search import ScryfallSearchFrame
 from src.config.settings import DECKS_DIR, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
 import logging
@@ -21,6 +23,7 @@ class Window(tk.Tk):
         self.search_tab = ttk.Frame(self.notebook)
         self.favorites_frame = FavoritesFrame(self.decks_tab, self.browser)
         self.frame = Frame(self.decks_tab, self.browser, self.favorites_frame, self)
+        self.controls_frame = DeckControlsFrame(self.decks_tab, self.frame, self.favorites_frame)  # Add controls frame
         self.search_frame = ScryfallSearchFrame(self.search_tab, self.browser, self.frame, self.notebook)
         self.log_text = tk.Text(self.log_tab, height=20, width=80)
         self.log_level = tk.StringVar(value="INFO")
@@ -36,11 +39,9 @@ class Window(tk.Tk):
         self.notebook.add(self.search_tab, text="Scryfall Search")
         self.notebook.pack(side=tk.TOP, fill="both", expand=True)
 
+        self.controls_frame.pack(side=tk.TOP, fill=tk.X)  # Pack controls at top
         self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.favorites_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
-        tk.Label(self.favorites_frame, text="Favorites", font=("Helvetica", 12, "bold")).pack(side=tk.LEFT)
-        window_buttons = tk.Frame(self.decks_tab)
-        window_buttons.pack(side=tk.BOTTOM, fill=tk.X)
 
         settings_frame = tk.Frame(self, bg="lightgray")
         settings_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5, padx=10)
@@ -64,7 +65,6 @@ class Window(tk.Tk):
                     config = yaml.safe_load(f) or {}
                 self.log_level.set(config.get("log_level", "INFO"))
                 self.verbose.set(config.get("verbose", False))
-                # Map "ALL" to DEBUG, others to their standard levels
                 level_map = {"ALL": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR}
                 logging.getLogger().setLevel(level_map.get(self.log_level.get(), logging.INFO))
                 logging.debug(f"Loaded config: log_level={self.log_level.get()}, verbose={self.verbose.get()}")
@@ -105,7 +105,6 @@ class Window(tk.Tk):
             with open(log_file, "r") as f:
                 for line in f:
                     if level == "ALL":
-                        # Show everything when ALL is selected
                         self.log_text.insert(tk.END, line)
                     elif (level == "INFO" and any(lvl in line for lvl in ["INFO", "WARNING", "ERROR"]) or
                           level == "WARNING" and "WARNING" in line or
