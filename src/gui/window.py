@@ -1,31 +1,36 @@
 # src/gui/window.py
 import os
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import ttk, filedialog
 from src.gui.deck_frame import Frame
 from src.gui.favorites_frame import FavoritesFrame
-from src.gui.deck_controls_frame import DeckControlsFrame  # New import
+from src.gui.deck_controls_frame import DeckControlsFrame
 from src.gui.scryfall_search import ScryfallSearchFrame
-from src.config.settings import DECKS_DIR, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
+from src.config.settings import DECKS_DIR, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, WINDOW_TITLE, PRIMARY_BG_COLOR, SECONDARY_BG_COLOR, TEXT_COLOR, FIELD_BG_COLOR, WIDGET_ACTIVE_COLOR, DEFAULT_FONT, CONTROL_TEXT_COLOR
 import logging
 import yaml
 
 class Window(tk.Tk):
-    def __init__(self, browser, title="Custom Window", width=DEFAULT_WINDOW_WIDTH, height=DEFAULT_WINDOW_HEIGHT, resizable=(True, True), *args, **kwargs):
+    def __init__(self, browser, title=WINDOW_TITLE, width=DEFAULT_WINDOW_WIDTH, height=DEFAULT_WINDOW_HEIGHT, resizable=(True, True), *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
         self.browser = browser
         self.title(title)
         self.geometry(f"{width}x{height}")
         self.resizable(resizable[0], resizable[1])
+        self.configure(bg=PRIMARY_BG_COLOR)
         self.notebook = ttk.Notebook(self)
+        style = ttk.Style()
+        style.configure("TNotebook", background=PRIMARY_BG_COLOR, foreground=CONTROL_TEXT_COLOR)
+        style.configure("TNotebook.Tab", background=SECONDARY_BG_COLOR, foreground=CONTROL_TEXT_COLOR, padding=[5, 2])
+        style.map("TNotebook.Tab", background=[("selected", WIDGET_ACTIVE_COLOR)])
         self.decks_tab = ttk.Frame(self.notebook)
         self.log_tab = ttk.Frame(self.notebook)
         self.search_tab = ttk.Frame(self.notebook)
         self.favorites_frame = FavoritesFrame(self.decks_tab, self.browser)
         self.frame = Frame(self.decks_tab, self.browser, self.favorites_frame, self)
-        self.controls_frame = DeckControlsFrame(self.decks_tab, self.frame, self.favorites_frame)  # Add controls frame
+        self.controls_frame = DeckControlsFrame(self.decks_tab, self.frame, self.favorites_frame)
         self.search_frame = ScryfallSearchFrame(self.search_tab, self.browser, self.frame, self.notebook)
-        self.log_text = tk.Text(self.log_tab, height=20, width=80)
+        self.log_text = tk.Text(self.log_tab, height=20, width=80, bg=FIELD_BG_COLOR, fg=TEXT_COLOR, font=DEFAULT_FONT)
         self.log_level = tk.StringVar(value="INFO")
         self.verbose = tk.BooleanVar(value=False)
         self.config_file = os.path.join(DECKS_DIR, "..", "config.yml")
@@ -39,19 +44,22 @@ class Window(tk.Tk):
         self.notebook.add(self.search_tab, text="Scryfall Search")
         self.notebook.pack(side=tk.TOP, fill="both", expand=True)
 
-        self.controls_frame.pack(side=tk.TOP, fill=tk.X)  # Pack controls at top
+        self.controls_frame.pack(side=tk.TOP, fill=tk.X)
         self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.favorites_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
 
-        settings_frame = tk.Frame(self, bg="lightgray")
+        settings_frame = tk.Frame(self, bg=SECONDARY_BG_COLOR)
         settings_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5, padx=10)
-        tk.Label(settings_frame, text="Log Level:", bg="lightgray").pack(side=tk.LEFT)
+        tk.Label(settings_frame, text="Log Level:", bg=SECONDARY_BG_COLOR, fg=TEXT_COLOR, font=DEFAULT_FONT).pack(side=tk.LEFT)
         log_dropdown = ttk.Combobox(settings_frame, textvariable=self.log_level,
                                     values=["ALL", "INFO", "WARNING", "ERROR"], state="readonly", width=10)
+        style = ttk.Style()
+        style.configure("TCombobox", fieldbackground=FIELD_BG_COLOR, background=SECONDARY_BG_COLOR, foreground=TEXT_COLOR)
+        style.map("TCombobox", background=[("active", WIDGET_ACTIVE_COLOR)])
         log_dropdown.pack(side=tk.LEFT, padx=5)
         log_dropdown.bind("<<ComboboxSelected>>", lambda e: self.update_logging())
-        tk.Checkbutton(settings_frame, text="Verbose", variable=self.verbose, bg="lightgray",
-                       command=self.update_logging).pack(side=tk.LEFT)
+        tk.Checkbutton(settings_frame, text="Verbose", variable=self.verbose, bg=SECONDARY_BG_COLOR, fg=TEXT_COLOR,
+                       font=DEFAULT_FONT, selectcolor=WIDGET_ACTIVE_COLOR).pack(side=tk.LEFT)
 
         self.log_text.pack(fill="both", expand=True)
         self.search_frame.pack(fill="both", expand=True)

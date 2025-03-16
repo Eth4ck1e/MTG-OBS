@@ -7,23 +7,23 @@ from src.gui.base_frame import BaseCardFrame
 from src.utils.favorites import save_favorite
 from src.utils.deck_parser import DeckParser
 from src.utils.image import download_scryfall_images, CustomImage
-from src.config.settings import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, CACHE_DIR, DECKS_DIR
+from src.config.settings import CARD_WIDTH, CARD_HEIGHT, CACHE_DIR, DECKS_DIR, PRIMARY_BG_COLOR
 from PIL import Image
 import logging
 import shutil
 import threading
 
 class Frame(BaseCardFrame):
-    def __init__(self, parent, browser, favorites_frame, window, button_width=THUMBNAIL_WIDTH,
-                 button_height=THUMBNAIL_HEIGHT, padding=10):
+    def __init__(self, parent, browser, favorites_frame, window, button_width=CARD_WIDTH,
+                 button_height=CARD_HEIGHT, padding=10):
         super().__init__(parent, browser, button_width, button_height, padding)
         self.favorites_frame = favorites_frame
         self.window = window
         self.deck_parser = DeckParser()
-        self.image_frame = tk.Frame(self, bg="white")
+        self.image_frame = tk.Frame(self, bg=PRIMARY_BG_COLOR)
         self.image_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.failures = []
-        self.filter_timer = None  # For debouncing
+        self.filter_timer = None
         self.load_all_decks()
 
     def filter_cards(self, event=None):
@@ -34,7 +34,6 @@ class Frame(BaseCardFrame):
 
     def _do_filter(self):
         """Perform the actual filtering after debounce delay."""
-        # Access search_field via window.controls_frame
         search_text = self.window.controls_frame.search_field.get().lower()
         print(f"Filtering with text: {search_text}")
         for label, _ in self.list_of_buttons:
@@ -149,7 +148,7 @@ class Frame(BaseCardFrame):
         cache_file = os.path.join(CACHE_DIR, "deck_cache.json")
         self.deck_mtime = max(os.path.getmtime(os.path.join(DECKS_DIR, f)) for f in deck_files) if deck_files else 0
 
-        progress_bar = ttk.Progressbar(orient=tk.HORIZONTAL, length=200, mode='determinate')
+        progress_bar = ttk.Progressbar(self.image_frame, orient=tk.HORIZONTAL, length=200, mode='determinate')
         progress_bar.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
         if os.path.exists(cache_file):
