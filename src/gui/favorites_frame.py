@@ -3,30 +3,22 @@ import tkinter as tk
 from tkinter import messagebox
 from src.gui.base_frame import BaseCardFrame
 from src.utils.favorites import load_favorites, save_favorite
-from src.config.settings import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, DECKS_DIR
+from src.config.settings import CARD_WIDTH, CARD_HEIGHT, DECKS_DIR, PRIMARY_BG_COLOR, TEXT_COLOR, BOLD_FONT
 import logging
 import os
 
-
 class FavoritesFrame(BaseCardFrame):
-    def __init__(self, parent, browser, button_width=THUMBNAIL_WIDTH, button_height=THUMBNAIL_HEIGHT, padding=10):
+    def __init__(self, parent, browser, button_width=CARD_WIDTH, button_height=CARD_HEIGHT, padding=10):
         super().__init__(parent, browser, button_width, button_height, padding)
-        self.config(borderwidth=2, relief="groove")
-        self.widget_frame = tk.Frame(self, bg="lightgray")  # Container with visible background
-        self.widget_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        self.config(bg=PRIMARY_BG_COLOR, borderwidth=2, relief="groove")
         self.create_widgets()
         self.load_favorites()
-        logging.debug("FavoritesFrame initialized and packed")
 
     def create_widgets(self):
-        """Create widgets for the Favorites frame."""
+        """Create widgets for the Favorites frame with modern styling."""
         logging.debug("Creating widgets in FavoritesFrame")
-        self.label = tk.Label(self.widget_frame, text="Favorites", font=("Helvetica", 12, "bold"))
+        self.label = tk.Label(self, text="Favorites", font=BOLD_FONT, bg=PRIMARY_BG_COLOR, fg=TEXT_COLOR)
         self.label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
-
-        self.clear_button = tk.Button(self.widget_frame, text="Clear Favorites", command=self.clear_favorites, width=10)
-        self.clear_button.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
-        logging.debug("FavoritesFrame widgets created: label and clear_button")
 
     def load_favorites(self):
         """Load favorites from file on startup."""
@@ -47,11 +39,11 @@ class FavoritesFrame(BaseCardFrame):
         try:
             self.images = []
             self.list_of_buttons = []
-            self.create_grid_of_buttons()  # Refresh UI
+            self.create_grid_of_buttons()
             fav_file = os.path.join(DECKS_DIR, "favorites.txt")
             if os.path.exists(fav_file):
                 with open(fav_file, "w") as f:
-                    f.write("")  # Truncate file
+                    f.write("")
                 logging.debug("Cleared favorites.txt")
             logging.info("Favorites cleared successfully")
         except Exception as e:
