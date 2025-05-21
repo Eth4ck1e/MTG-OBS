@@ -7,6 +7,7 @@ from src.gui.base_frame import BaseCardFrame
 from src.utils.favorites import save_favorite
 from src.utils.deck_parser import DeckParser
 from src.utils.image import download_scryfall_images, CustomImage
+from src.utils.cards_storage import init_storage, add_card, search_cards, clear_storage
 from src.config.settings import CARD_WIDTH, CARD_HEIGHT, CACHE_DIR, DECKS_DIR, PRIMARY_BG_COLOR
 from PIL import Image
 import logging
@@ -24,6 +25,7 @@ class Frame(BaseCardFrame):
         self.image_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.failures = []
         self.filter_timer = None
+        init_storage()
         self.load_all_decks()
 
     def filter_cards(self, event=None):
@@ -33,19 +35,28 @@ class Frame(BaseCardFrame):
         self.filter_timer = self.after(300, self._do_filter)
 
     def _do_filter(self):
-        """Perform the actual filtering after debounce delay."""
-        search_text = self.window.controls_frame.search_field.get().lower()
-        print(f"Filtering with text: {search_text}")
-        for label, _ in self.list_of_buttons:
-            label.pack_forget()
-        visible_count = 0
-        for label, name_label in self.list_of_buttons:
-            card_name = name_label["text"].lower()
-            if not search_text or search_text in card_name:
-                label.pack(side=tk.LEFT, padx=self.padding, pady=self.padding)
-                visible_count += 1
-        self.image_frame.update_idletasks()
-        logging.debug(f"Filtered cards, visible: {visible_count}")
+        """Rebuild UI with search results from JSON."""
+        search_text = self.window.controls_frame.search_field.get()
+        logging.info(f"Initiating search with query: '{search_text}'")
+        results = search_cards(search_text)
+        self.images = []
+        for card in results:
+            image_path = os.path.join(CACHE_DIR, card["filename"])
+            if os.path.exists(image_path):
+                image = CustomImage(CACHE_DIR, card["filename"])
+                try:
+                    image.load_thumbnail(self.button_width, self.button_height)
+                    self.images.append(image)
+                except Exception as e:
+                    logging.error(f"Failed to load thumbnail for {card['filename']}: {str(e)}", exc_info=True)
+            else:
+                logging.warning(f"Image not found for card: {card['filename']}")
+        logging.debug(f"Preparing to rebuild UI with {len(self.images)} images")
+        self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
+        logging.info(f"UI rebuilt with {len(self.images)} images and {len(self.list_of_buttons)} buttons")
+        # Debug: Log state to check for desync
+        if len(self.images) != len(self.list_of_buttons):
+            logging.warning(f"UI desync detected: images={len(self.images)}, buttons={len(self.list_of_buttons)}")
 
     def add_to_favorites(self, index):
         card = self.images[index]
@@ -53,7 +64,7 @@ class Frame(BaseCardFrame):
         save_favorite(card.name)
 
     def clear_all(self):
-        """Clear all deck files, cached images, and reset the app."""
+        """Clear all deck files, cached images, JSON storage, and reset the app."""
         if not messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all decks and images?"):
             logging.info("Clear all operation canceled by user")
             return
@@ -66,12 +77,13 @@ class Frame(BaseCardFrame):
                 shutil.rmtree(CACHE_DIR)
                 logging.debug("Cleared cache directory")
             os.makedirs(CACHE_DIR, exist_ok=True)
+            clear_storage()
             self.images = []
             self.list_of_buttons = []
             self.create_grid_of_buttons(target_frame=self.image_frame, show_fav_button=True)
             self.favorites_frame.load_favorites()
             self.update_idletasks()
-            logging.info("All decks and images cleared successfully")
+            logging.info("All decks, images, and storage cleared successfully")
         except Exception as e:
             logging.error(f"Failed to clear all: {str(e)}", exc_info=True)
 
@@ -114,13 +126,21 @@ class Frame(BaseCardFrame):
         """Complete the loading process after downloads."""
         progress_bar.destroy()
         downloaded_files = [f for f in os.listdir(CACHE_DIR) if f.endswith('.png')]
-        logging.debug(f"Finalizing load with {len(downloaded_files)} downloaded files")
+        logging.info(f"Finalizing load with {len(downloaded_files)} downloaded files")
         for filename in downloaded_files:
             image_path = os.path.join(CACHE_DIR, filename)
             image = CustomImage(CACHE_DIR, filename)
-            image.load_thumbnail(self.button_width, self.button_height)
-            self.images.append(image)
-            self.cached_files.append(filename)
+            try:
+                image.load_thumbnail(self.button_width, self.button_height)
+                self.images.append(image)
+                self.cached_files.append(filename)
+                parts = filename.rsplit("_", 2)
+                card_name = " ".join(parts[0].split("_"))
+                set_code = parts[1]
+                collector_number = parts[2].replace(".png", "")
+                add_card(card_name, set_code, collector_number, filename)
+            except Exception as e:
+                logging.error(f"Failed to process image {filename}: {str(e)}", exc_info=True)
         if not self.images:
             logging.warning("No images loaded despite files in cache")
             logging.info("No valid cards found in deck files")
@@ -139,6 +159,7 @@ class Frame(BaseCardFrame):
         self.failures = []
         os.makedirs(DECKS_DIR, exist_ok=True)
         os.makedirs(CACHE_DIR, exist_ok=True)
+        clear_storage()
         self.deck_parser.refresh_deck_files()
         deck_files = self.deck_parser.deck_files
         if not deck_files:
@@ -147,6 +168,7 @@ class Frame(BaseCardFrame):
 
         cache_file = os.path.join(CACHE_DIR, "deck_cache.json")
         self.deck_mtime = max(os.path.getmtime(os.path.join(DECKS_DIR, f)) for f in deck_files) if deck_files else 0
+        logging.info(f"Loading decks with mtime: {self.deck_mtime}")
 
         progress_bar = ttk.Progressbar(self.image_frame, orient=tk.HORIZONTAL, length=200, mode='determinate')
         progress_bar.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
@@ -157,12 +179,23 @@ class Frame(BaseCardFrame):
             if cache_data.get("mtime", 0) >= self.deck_mtime:
                 cached_files = cache_data["files"]
                 progress_bar["maximum"] = len(cached_files)
+                logging.info(f"Loading {len(cached_files)} cards from cache")
                 for i, filename in enumerate(cached_files):
                     image_path = os.path.join(CACHE_DIR, filename)
                     if os.path.exists(image_path):
                         image = CustomImage(CACHE_DIR, filename)
-                        image.load_thumbnail(self.button_width, self.button_height)
-                        self.images.append(image)
+                        try:
+                            image.load_thumbnail(self.button_width, self.button_height)
+                            self.images.append(image)
+                            parts = filename.rsplit("_", 2)
+                            card_name = " ".join(parts[0].split("_"))
+                            set_code = parts[1]
+                            collector_number = parts[2].replace(".png", "")
+                            add_card(card_name, set_code, collector_number, filename)
+                        except Exception as e:
+                            logging.error(f"Failed to load cached image {filename}: {str(e)}", exc_info=True)
+                    else:
+                        logging.warning(f"Cached image not found: {filename}")
                     progress_bar["value"] = i + 1
                     self.update_idletasks()
                 if self.images:

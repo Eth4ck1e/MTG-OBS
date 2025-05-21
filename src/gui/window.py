@@ -37,6 +37,7 @@ class Window(tk.Tk):
         self.load_config()
         self.create_widgets()
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.start_log_refresh()
 
     def create_widgets(self):
         self.notebook.add(self.decks_tab, text="Decks")
@@ -110,15 +111,28 @@ class Window(tk.Tk):
         level = self.log_level.get()
         log_file = os.path.join(DECKS_DIR, "..", "logs", "app.log")
         if os.path.exists(log_file):
-            with open(log_file, "r") as f:
-                for line in f:
-                    if level == "ALL":
-                        self.log_text.insert(tk.END, line)
-                    elif (level == "INFO" and any(lvl in line for lvl in ["INFO", "WARNING", "ERROR"]) or
-                          level == "WARNING" and "WARNING" in line or
-                          level == "ERROR" and "ERROR" in line):
-                        if self.verbose.get() or "ERROR" in line or "WARNING" in line:
+            try:
+                with open(log_file, "r") as f:
+                    for line in f:
+                        if level == "ALL":
                             self.log_text.insert(tk.END, line)
+                        elif (level == "INFO" and any(lvl in line for lvl in ["INFO", "WARNING", "ERROR"]) or
+                              level == "WARNING" and "WARNING" in line or
+                              level == "ERROR" and "ERROR" in line):
+                            if self.verbose.get() or "ERROR" in line or "WARNING" in line:
+                                self.log_text.insert(tk.END, line)
+                self.log_text.see(tk.END)  # Scroll to bottom
+                logging.debug("Updated log display and scrolled to bottom")
+            except Exception as e:
+                logging.error(f"Failed to update log display: {str(e)}", exc_info=True)
+        else:
+            logging.warning("Log file not found for display")
+
+    def start_log_refresh(self, interval=5000):
+        """Periodically refresh the log display."""
+        self.update_log_display()
+        self.after(interval, lambda: self.start_log_refresh(interval))
+        logging.debug(f"Scheduled log refresh every {interval}ms")
 
     def show_scryfall_search(self, card_name, set_code, index):
         self.notebook.select(self.search_tab)

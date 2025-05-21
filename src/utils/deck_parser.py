@@ -11,11 +11,15 @@ class DeckParser:
 
     def refresh_deck_files(self):
         """Refresh the list of deck files from DECKS_DIR."""
-        self.deck_files = [
-            f for f in os.listdir(DECKS_DIR)
-            if os.path.isfile(os.path.join(DECKS_DIR, f)) and f.endswith(".txt") and f != "favorites.txt"
-        ]
-        logging.debug(f"Refreshed deck files: {self.deck_files}")
+        try:
+            self.deck_files = [
+                f for f in os.listdir(DECKS_DIR)
+                if os.path.isfile(os.path.join(DECKS_DIR, f)) and f.endswith(".txt") and f != "favorites.txt"
+            ]
+            logging.debug(f"Refreshed deck files: {self.deck_files}")
+        except FileNotFoundError:
+            self.deck_files = []
+            logging.warning(f"DECKS_DIR not found: {DECKS_DIR}")
 
     def get_deck_lines(self):
         """Return all lines from deck files with file info."""

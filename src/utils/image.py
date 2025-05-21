@@ -9,8 +9,7 @@ from PIL import Image, ImageTk
 import io
 import base64
 
-# Configure logging with cleanup
-os.makedirs(LOGS_DIR, exist_ok=True)
+# Logging setup (LOGS_DIR is already created by settings.py)
 log_file = os.path.join(LOGS_DIR, "app.log")
 if os.path.exists(log_file):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -44,7 +43,7 @@ def create_clear_png():
 
 def download_scryfall_images(cards):
     """Download images for a list of cards in bulk from Scryfall."""
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    # CACHE_DIR is already created by settings.py
     base_url = "https://api.scryfall.com/cards/collection"
     headers = {"Content-Type": "application/json"}
     identifiers = [
