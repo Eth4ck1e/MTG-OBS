@@ -12,6 +12,7 @@ else:  # Running as script
 DECKS_DIR = os.path.join(ROOT_DIR, "decks")
 LOGS_DIR = os.path.join(ROOT_DIR, "logs")
 CACHE_DIR = os.path.join(ROOT_DIR, "cache")
+OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
 
 # Create directories if they don't exist
 for directory in [DECKS_DIR, LOGS_DIR, CACHE_DIR]:
